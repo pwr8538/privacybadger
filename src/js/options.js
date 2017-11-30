@@ -46,7 +46,8 @@ let migrations = require("migrations").Migrations;
  * Loads options from pb storage and sets UI elements accordingly.
  */
 function loadOptions() {
-  $('#blockedResources').css('max-height',$(window).height() - 300);
+  // TODO blame
+  //$('#blockedResources').css('max-height',$(window).height() - 300);
 
   // Set page title to i18n version of "Privacy Badger Options"
   document.title = i18n.getMessage("options_title");
@@ -60,6 +61,8 @@ function loadOptions() {
 
   // Set up input for searching through tracking domains.
   $("#trackingDomainSearch").on("input", filterTrackingDomains);
+  $("#tracking-domains-type-filter").on("change", filterTrackingDomains);
+  $("#tracking-domains-status-filter").on("change", filterTrackingDomains);
 
   // Add event listeners for origins container.
   $(function () {
@@ -273,10 +276,16 @@ function refreshOriginCache() {
 
 /**
  * Gets array of encountered origins.
+ *
  * @param filterText {String} Text to filter origins with.
+ * @param type_filter {String} Type (user-controlled, DNT-compliant) to filter
+ *   origins by.
+ * @param status_filter {String} Status (blocked, cookieblocked, allowed) to
+ *   filter origins by.
+ *
  * @return {Array}
  */
-function getOriginsArray(filterText) {
+function getOriginsArray(filterText, type_filter, status_filter) {
   // Make sure filterText is lower case for case-insensitive matching.
   if (filterText) {
     filterText = filterText.toLowerCase();
@@ -284,10 +293,31 @@ function getOriginsArray(filterText) {
     filterText = "";
   }
 
-  // Include only origins containing given filter text.
+  // Include only origins that pass given filters.
   function containsFilterText(origin) {
+    const value = originCache[origin];
+
+    if (type_filter) {
+      if (type_filter == "user") {
+        if (!value.startsWith("user")) {
+          return false;
+        }
+      } else {
+        if (value != type_filter) {
+          return false;
+        }
+      }
+    }
+
+    if (status_filter) {
+      if (status_filter != value.replace("user_", "")) {
+        return false;
+      }
+    }
+
     return origin.toLowerCase().indexOf(filterText) !== -1;
   }
+
   return Object.keys(originCache).filter(containsFilterText);
 }
 
@@ -417,14 +447,14 @@ function refreshFilterPage() {
   $('.tooltip').tooltipster();
 
   // Display tracking domains.
-  var originsToDisplay;
-  var searchText = $("#trackingDomainSearch").val();
-  if (searchText.length > 0) {
-    originsToDisplay = getOriginsArray(searchText);
-  } else {
-    originsToDisplay = allTrackingDomains;
-  }
-  showTrackingDomains(originsToDisplay);
+  // TODO when does this happen?
+  showTrackingDomains(
+    getOriginsArray(
+      $("#trackingDomainSearch").val(),
+      $('#tracking-domains-type-filter').val(),
+      $('#tracking-domains-status-filter').val()
+    )
+  );
 
   log("Done refreshing options page");
 }
@@ -434,6 +464,15 @@ function refreshFilterPage() {
  * @param event Input event triggered by user.
  */
 function filterTrackingDomains(/*event*/) {
+  const $typeFilter = $('#tracking-domains-type-filter');
+  const $statusFilter = $('#tracking-domains-status-filter');
+
+  if ($typeFilter.val() == "dnt") {
+    $statusFilter.prop("disabled", true).val("");
+  } else {
+    $statusFilter.prop("disabled", false);
+  }
+
   var initialSearchText = $('#trackingDomainSearch').val().toLowerCase();
 
   // Wait a short period of time and see if search text has changed.
@@ -447,7 +486,11 @@ function filterTrackingDomains(/*event*/) {
     }
 
     // Show filtered origins.
-    var filteredOrigins = getOriginsArray(searchText);
+    var filteredOrigins = getOriginsArray(
+      searchText,
+      $typeFilter.val(),
+      $statusFilter.val()
+    );
     showTrackingDomains(filteredOrigins);
   }, timeToWait);
 }
@@ -475,7 +518,7 @@ function addOrigins(e) {
 
 /**
  * Displays list of tracking domains along with toggle controls.
- * @param domains Tracking domains to display.
+ * @param domains {Array} Tracking domains to display.
  */
 function showTrackingDomains(domains) {
   domains.sort(htmlUtils.compareReversedDomains);
